@@ -16,6 +16,8 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 abstract class Comicaso(
     override val name: String,
@@ -31,12 +33,17 @@ abstract class Comicaso(
 
     private val json: Json by injectLazy()
 
+    // Format tanggal bawaan server Comicaso (Contoh: "2026-06-12" atau "2026-06-12T14:30:00Z")
+    private val dateFormat by lazy {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    }
+
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
         .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
         .add("Accept", "application/json, */*")
         .add("Referer", "$frontendUrl/")
 
-    // 1. POPULAR & LATEST MANGA (Mengambil daftar lengkap)
+    // 1. POPULAR & LATEST MANGA
     override fun popularMangaRequest(page: Int): Request = GET("$staticUrl/manga/index.json", headers)
 
     override fun popularMangaParse(response: Response): MangasPage {
@@ -125,7 +132,7 @@ abstract class Comicaso(
         }
     }
 
-    // 4. DAFTAR CHAPTER
+    // 4. DAFTAR CHAPTER (Sekarang mengambil data Tanggal)
     override fun chapterListRequest(manga: SManga): Request = mangaDetailsRequest(manga)
 
     override fun chapterListParse(response: Response): List<SChapter> {
@@ -138,13 +145,31 @@ abstract class Comicaso(
         return chaptersArray.map { item ->
             val chObj = item.jsonObject
             val chSlug = chObj["slug"]?.jsonPrimitive?.content ?: chObj["chapter"]?.jsonPrimitive?.content ?: ""
+            
+            // Mencari data tanggal unggah dari JSON
+            val rawDate = chObj["date"]?.jsonPrimitive?.content 
+                ?: chObj["updated_at"]?.jsonPrimitive?.content 
+                ?: chObj["created_at"]?.jsonPrimitive?.content 
+                ?: ""
 
             SChapter.create().apply {
                 name = chObj["title"]?.jsonPrimitive?.content ?: chObj["chapter_title"]?.jsonPrimitive?.content ?: "Chapter"
                 url = "/chapter/$mangaSlug/$chSlug.json"
-                date_upload = 0L
+                date_upload = parseChapterDate(rawDate)
             }
         }.reversed()
+    }
+
+    // Fungsi pengubah teks tanggal menjadi format angka sistem Android
+    private fun parseChapterDate(dateStr: String): Long {
+        if (dateStr.isEmpty()) return 0L
+        return try {
+            // Potong string jika menggunakan format ISO timestamp panjang (misal ada huruf T atau Z)
+            val cleanDate = dateStr.substringBefore("T")
+            dateFormat.parse(cleanDate)?.time ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     // 5. DAFTAR HALAMAN GAMBAR
@@ -169,3 +194,4 @@ abstract class Comicaso(
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 }
+

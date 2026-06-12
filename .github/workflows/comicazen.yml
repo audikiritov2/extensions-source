@@ -17,6 +17,7 @@ jobs:
       - name: Build APK Khusus Comicazen
         run: |
           chmod +x gradlew
+          ./gradlew spotlessApply
           ./gradlew :src:id:comicazen:assembleRelease
 
       - name: Upload APK Ke Sini

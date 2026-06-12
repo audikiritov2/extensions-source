@@ -33,7 +33,6 @@ abstract class Comicaso(
 
     private val json: Json by injectLazy()
 
-    // Format tanggal bawaan server Comicaso (Contoh: "2026-06-12" atau "2026-06-12T14:30:00Z")
     private val dateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd", Locale.US)
     }
@@ -65,12 +64,15 @@ abstract class Comicaso(
 
     override fun latestUpdatesParse(response: Response): MangasPage = popularMangaParse(response)
 
-    // 2. FITUR PENCARIAN & FILTER CERDAS
+    // 2. FITUR PENCARIAN & FILTER CERDAS (SUDAH FIX)
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         var filterUrl = "$staticUrl/manga/index.json?query=$query"
         filters.forEach { filter ->
-            if (filter is Filter.Select<*>) {
-                filterUrl += "&${filter.name}=${filter.values[filter.state]}"
+            if (filter is TypeFilter) {
+                filterUrl += "&Tipe=${filter.values[filter.state]}"
+            }
+            if (filter is StatusFilter) {
+                filterUrl += "&Status=${filter.values[filter.state]}"
             }
         }
         return GET(filterUrl, headers)
@@ -109,9 +111,13 @@ abstract class Comicaso(
         return MangasPage(mangas, hasNextPage = false)
     }
 
+    // Kelas khusus pengganti abstract class Filter agar tidak error compiler
+    class TypeFilter : Filter.Select<String>("Tipe", arrayOf("Semua", "Manga", "Manhua", "Manhwa"))
+    class StatusFilter : Filter.Select<String>("Status", arrayOf("Semua", "Ongoing", "Completed"))
+
     override fun getFilterList() = FilterList(
-        Filter.Select("Tipe", arrayOf("Semua", "Manga", "Manhua", "Manhwa")),
-        Filter.Select("Status", arrayOf("Semua", "Ongoing", "Completed")),
+        TypeFilter(),
+        StatusFilter(),
     )
 
     // 3. DETAIL MANGA
@@ -132,7 +138,7 @@ abstract class Comicaso(
         }
     }
 
-    // 4. DAFTAR CHAPTER (Sekarang mengambil data Tanggal)
+    // 4. DAFTAR CHAPTER 
     override fun chapterListRequest(manga: SManga): Request = mangaDetailsRequest(manga)
 
     override fun chapterListParse(response: Response): List<SChapter> {
@@ -146,7 +152,6 @@ abstract class Comicaso(
             val chObj = item.jsonObject
             val chSlug = chObj["slug"]?.jsonPrimitive?.content ?: chObj["chapter"]?.jsonPrimitive?.content ?: ""
             
-            // Mencari data tanggal unggah dari JSON
             val rawDate = chObj["date"]?.jsonPrimitive?.content 
                 ?: chObj["updated_at"]?.jsonPrimitive?.content 
                 ?: chObj["created_at"]?.jsonPrimitive?.content 
@@ -160,11 +165,9 @@ abstract class Comicaso(
         }.reversed()
     }
 
-    // Fungsi pengubah teks tanggal menjadi format angka sistem Android
     private fun parseChapterDate(dateStr: String): Long {
         if (dateStr.isEmpty()) return 0L
         return try {
-            // Potong string jika menggunakan format ISO timestamp panjang (misal ada huruf T atau Z)
             val cleanDate = dateStr.substringBefore("T")
             dateFormat.parse(cleanDate)?.time ?: 0L
         } catch (_: Exception) {
@@ -194,4 +197,3 @@ abstract class Comicaso(
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 }
-

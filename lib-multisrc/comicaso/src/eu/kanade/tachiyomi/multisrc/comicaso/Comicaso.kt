@@ -23,9 +23,9 @@ abstract class Comicaso(
     override val name: String,
     override val baseUrl: String,
     override val lang: String,
-    // FIX #1: pakai parameter `source` eksplisit, bukan name.lowercase()
-    // supaya "Medusa Scans" tidak jadi "medusa scans" (ada spasi)
-    protected open val source: String,
+    // Default: name.lowercase() tanpa spasi — "Medusa Scans" → "medusascans"
+    // Override di child class kalau source ID-nya beda dari nama
+    protected open val source: String = name.lowercase().replace(" ", ""),
 ) : HttpSource() {
 
     override val supportsLatest = true

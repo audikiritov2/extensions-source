@@ -2,103 +2,126 @@ package eu.kanade.tachiyomi.extension.id.comicaso
 
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.JsonDecoder
-import kotlinx.serialization.json.JsonPrimitive
+import java.text.SimpleDateFormat
+import java.util.Locale
 
-object SafeStringSerializer : KSerializer<String?> {
-    override val descriptor: SerialDescriptor =
-        PrimitiveSerialDescriptor("SafeString", PrimitiveKind.STRING)
-
-    override fun serialize(encoder: Encoder, value: String?) {
-        if (value == null) {
-            encoder.encodeNull()
-        } else {
-            encoder.encodeString(value)
-        }
-    }
-
-    override fun deserialize(decoder: Decoder): String? {
-        val jsonDecoder = decoder as? JsonDecoder ?: return try {
-            decoder.decodeString()
-        } catch (_: Exception) {
-            null
-        }
-
-        return try {
-            val element = jsonDecoder.decodeJsonElement()
-            if (element is JsonPrimitive && element.isString) {
-                element.content
-            } else {
-                null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-}
+// ── Wrapper semua response API /api/*.php ─────────────────────────────────────
+// Format: { "ok": true, "data": T, "mode_source": "..." }
 
 @Serializable
-class MangaDto(
-    val slug: String,
-    val title: String,
-    @Serializable(SafeStringSerializer::class)
+data class ApiResponse<T>(
+    val ok: Boolean = false,
+    val data: T,
+    @SerialName("mode_source") val modeSource: String? = null,
+)
+
+// ── Index manga (dari static/manga/index.json) ────────────────────────────────
+
+@Serializable
+data class MangaDto(
+    val slug: String = "",
+    val title: String = "",
     val thumbnail: String? = null,
+    val synopsis: String? = null,
     val status: String? = null,
     val type: String? = null,
-    val genres: List<String>? = emptyList(),
-    @SerialName("manga_date") val mangaDate: Long? = null,
+    val genres: List<String>? = null,
     @SerialName("updated_at") val updatedAt: Long? = null,
+    @SerialName("manga_date") val mangaDate: Long? = null,
 ) {
     fun toSManga(source: String) = SManga.create().apply {
-        url = "$source/$slug"
-        title = this@MangaDto.title
+        // url format: "{source}/{slug}" — dipakai di mangaDetailsRequest & chapterListRequest
+        url           = "$source/$slug"
+        title         = this@MangaDto.title
         thumbnail_url = thumbnail
-        genre = genres?.joinToString()
-        status = when (this@MangaDto.status) {
-            "on-going" -> SManga.ONGOING
-            "end" -> SManga.COMPLETED
-            else -> SManga.UNKNOWN
+        this.status   = when (this@MangaDto.status?.lowercase()) {
+            "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
+            "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
+            "hiatus", "dropped"                     -> SManga.ON_HIATUS
+            else                                    -> SManga.UNKNOWN
         }
     }
 }
 
+// ── Detail manga (dari /api/manga.php) ────────────────────────────────────────
+
 @Serializable
-class MangaDetailDto(
-    val slug: String,
-    val title: String,
-    @Serializable(SafeStringSerializer::class)
+data class MangaDetailDto(
+    val id: Long = 0,
+    val slug: String = "",
+    val title: String = "",
     val thumbnail: String? = null,
     val synopsis: String? = null,
     val alternative: String? = null,
     val status: String? = null,
+    val type: String? = null,
     val author: String? = null,
     val artist: String? = null,
-    val genres: List<String>? = emptyList(),
-    val chapters: List<ChapterDto>? = emptyList(),
+    val genres: List<String>? = null,
+    val chapters: List<ChapterDto>? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("manga_date") val mangaDate: Long? = null,
+    @SerialName("latest_chapter") val latestChapter: String? = null,
+    @SerialName("last_chapter") val lastChapter: String? = null,
 )
 
+// ── Chapter item (di dalam MangaDetailDto.chapters) ──────────────────────────
+
 @Serializable
-class ChapterDto(
-    val slug: String,
-    val title: String,
+data class ChapterDto(
+    val id: Long = 0,
+    // PENTING: pakai slug (string), bukan id (angka) untuk URL
+    val slug: String = "",
+    val title: String? = null,
+    @SerialName("chapter_title") val chapterTitle: String? = null,
     val date: Long? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
-        url = "$source/$mangaSlug/$slug"
-        name = title
-        date_upload = date?.let { it * 1000L } ?: 0L
+        // url format: "{source}/{mangaSlug}/{chapterSlug}"
+        url  = "$source/$mangaSlug/$slug"
+        name = title ?: chapterTitle
+            ?: slug.replace("-", " ").replaceFirstChar { it.uppercaseChar() }
+
+        date_upload = when {
+            // API kadang return Unix timestamp (detik)
+            date != null && date in 946_684_800L..4_102_444_800L -> date * 1000L
+            date != null -> date
+            // Atau string tanggal "yyyy-MM-dd HH:mm:ss"
+            updatedAt != null -> parseDate(updatedAt)
+            createdAt != null -> parseDate(createdAt)
+            else -> 0L
+        }
+
+        chapter_number = slug.removePrefix("chapter-").toFloatOrNull() ?: -1f
+    }
+
+    private fun parseDate(raw: String): Long {
+        return try {
+            val clean = raw.substringBefore("T").trim()
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(clean)?.time ?: 0L
+        } catch (_: Exception) { 0L }
     }
 }
 
+// ── Chapter images (dari /api/chapter.php) ────────────────────────────────────
+
 @Serializable
-class ChapterImagesDto(
-    val images: List<String>,
-)
+data class ChapterImagesDto(
+    val id: Long = 0,
+    val slug: String = "",
+    val title: String? = null,
+    @SerialName("chapter_title") val chapterTitle: String? = null,
+    @SerialName("manga_slug") val mangaSlug: String? = null,
+    @SerialName("chapter_slug") val chapterSlug: String? = null,
+    val thumbnail: String? = null,
+    // Field utama yang kita butuhkan
+    val images: List<String> = emptyList(),
+    val pages: List<String> = emptyList(),
+) {
+    // Ambil dari images, fallback ke pages
+    fun getImageUrls(): List<String> = images.ifEmpty { pages }
+}

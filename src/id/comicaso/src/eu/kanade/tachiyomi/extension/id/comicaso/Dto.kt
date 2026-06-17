@@ -10,8 +10,10 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.serializer
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -64,7 +66,8 @@ object FlexibleDateSerializer : KSerializer<Long> {
 object FlexibleStringSerializer : KSerializer<String?> {
     override val descriptor = PrimitiveSerialDescriptor("FlexibleString", PrimitiveKind.STRING)
 
-    override fun serialize(encoder: Encoder, value: String?) = encoder.encodeString(value ?: "")
+    override fun serialize(encoder: Encoder, value: String?) =
+        encoder.encodeString(value ?: "")
 
     override fun deserialize(decoder: Decoder): String? {
         val jsonDecoder = decoder as? JsonDecoder ?: return null
@@ -123,10 +126,10 @@ data class MangaIndexDto(
 ) {
     fun toSManga(): SManga = SManga.create().apply {
         val src = this@MangaIndexDto.source ?: "comicazen"
-        url = "$src/${this@MangaIndexDto.slug}"
-        title = this@MangaIndexDto.title
+        url           = "$src/${this@MangaIndexDto.slug}"
+        title         = this@MangaIndexDto.title
         thumbnail_url = thumbnail
-        this.status = this@MangaIndexDto.status.toMangaStatus()
+        this.status   = this@MangaIndexDto.status.toMangaStatus()
     }
 }
 
@@ -177,15 +180,17 @@ data class ChapterDto(
     val createdAt: Long = 0L,
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
-        url = "$source/$mangaSlug/$slug"
+        url  = "$source/$mangaSlug/$slug"
         name = title ?: chapterTitle
             ?: slug.replace("-", " ").replaceFirstChar { it.uppercaseChar() }
-        date_upload = date.takeIf { it > 0 } ?: updatedAt.takeIf { it > 0 } ?: createdAt
+        date_upload    = date.takeIf { it > 0 } ?: updatedAt.takeIf { it > 0 } ?: createdAt
         chapter_number = slug.removePrefix("chapter-").toFloatOrNull() ?: -1f
     }
 }
 
 // ── Chapter images dari /api/chapter.php ─────────────────────────────────────
+// FIX: pages[0] bisa berupa Object {"url":"...", "page":1} atau String langsung
+// Gunakan JsonArray + parse manual untuk handle keduanya
 
 @Serializable
 data class ChapterImagesDto(
@@ -195,17 +200,55 @@ data class ChapterImagesDto(
     @SerialName("manga_slug") val mangaSlug: String? = null,
     @SerialName("chapter_slug") val chapterSlug: String? = null,
     val thumbnail: String? = null,
+    // images: selalu List<String> — aman
     val images: List<String> = emptyList(),
+    // pages: bisa List<String> ATAU List<Object> — parse manual via JsonArray
+    @Serializable(with = FlexiblePageListSerializer::class)
     val pages: List<String> = emptyList(),
 ) {
     fun getImageUrls(): List<String> = images.ifEmpty { pages }
 }
 
+// Serializer untuk pages[] yang bisa String atau Object
+object FlexiblePageListSerializer : KSerializer<List<String>> {
+    private val delegateSerializer = kotlinx.serialization.builtins.ListSerializer(
+        kotlinx.serialization.json.JsonElement.serializer(),
+    )
+
+    override val descriptor = delegateSerializer.descriptor
+
+    override fun serialize(encoder: Encoder, value: List<String>) {
+        encoder.encodeSerializableValue(
+            kotlinx.serialization.builtins.ListSerializer(
+                kotlinx.serialization.serializer<String>(),
+            ),
+            value,
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): List<String> {
+        val elements = decoder.decodeSerializableValue(delegateSerializer)
+        return elements.mapNotNull { element ->
+            when {
+                element is JsonPrimitive -> element.content.takeIf {
+                    it.startsWith("http")
+                }
+                else -> {
+                    // Object: coba ambil field url/src/image/link
+                    val obj = element.toString()
+                    Regex(""""(?:url|src|image|img|link)"\s*:\s*"(https?://[^"]+)"""")
+                        .find(obj)?.groupValues?.get(1)
+                }
+            }
+        }
+    }
+}
+
 // ── Extension: String? → SManga status ───────────────────────────────────────
 
 fun String?.toMangaStatus() = when (this?.lowercase()) {
-    "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
-    "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
-    "hiatus", "dropped" -> SManga.ON_HIATUS
-    else -> SManga.UNKNOWN
+    "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
+    "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
+    "hiatus", "dropped"                     -> SManga.ON_HIATUS
+    else                                    -> SManga.UNKNOWN
 }

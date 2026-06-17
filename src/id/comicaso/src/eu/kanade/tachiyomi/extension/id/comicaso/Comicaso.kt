@@ -105,9 +105,9 @@ class Comicaso : HttpSource() {
             }
             if (rawUrl != null) {
                 val httpUrl = rawUrl.toHttpUrl()
-                val pageParam   = httpUrl.queryParameter("page")
+                val pageParam = httpUrl.queryParameter("page")
                 val sourceParam = httpUrl.queryParameter("source")
-                val slugParam   = httpUrl.queryParameter("slug")
+                val slugParam = httpUrl.queryParameter("slug")
                 if (pageParam == "manga" && sourceParam != null && slugParam != null) {
                     return fetchMangaDetails(
                         SManga.create().apply { url = "$sourceParam/$slugParam" },
@@ -193,15 +193,15 @@ class Comicaso : HttpSource() {
 
     override fun mangaDetailsParse(response: Response): SManga {
         // FIX: response dibungkus {"ok":true,"data":{...},"mode_source":"..."}
-        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
 
         return SManga.create().apply {
-            url           = "$source/${result.slug}"
-            title         = result.title
+            url = "$source/${result.slug}"
+            title = result.title
             thumbnail_url = result.thumbnail
-            description   = buildString {
+            description = buildString {
                 result.synopsis?.let { append(Jsoup.parse(it).text()) }
                 result.alternative?.takeIf { it.isNotEmpty() }?.let {
                     if (isNotEmpty()) append("\n\n")
@@ -210,7 +210,7 @@ class Comicaso : HttpSource() {
             }.trim()
             author = result.author
             artist = result.artist ?: result.author
-            genre  = result.genres?.joinToString()
+            genre = result.genres?.joinToString()
             status = when (result.status?.lowercase()) {
                 "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
                 "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
@@ -227,7 +227,7 @@ class Comicaso : HttpSource() {
 
     override fun chapterListParse(response: Response): List<SChapter> {
         // FIX: unwrap data wrapper
-        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
         return result.chapters
@@ -239,9 +239,9 @@ class Comicaso : HttpSource() {
     override fun getChapterUrl(chapter: SChapter): String {
         // chapter.url format: "{source}/{mangaSlug}/{chapterSlug}"
         val segments = chapter.url.split("/")
-        val source   = segments.getOrElse(0) { "comicazen" }
-        val manga    = segments.getOrElse(1) { "" }
-        val slug     = segments.getOrElse(2) { "" }
+        val source = segments.getOrElse(0) { "comicazen" }
+        val manga = segments.getOrElse(1) { "" }
+        val slug = segments.getOrElse(2) { "" }
         // FIX: WebView buka v3.comicaso.pro
         return "$baseUrl/?page=chapter&source=$source&manga=$manga&chapter=$slug"
     }
@@ -251,9 +251,9 @@ class Comicaso : HttpSource() {
     override fun pageListRequest(chapter: SChapter): Request {
         // chapter.url format: "{source}/{mangaSlug}/{chapterSlug}"
         val segments = chapter.url.split("/")
-        val source   = segments.getOrElse(0) { "comicazen" }
-        val manga    = segments.getOrElse(1) { "" }
-        val slug     = segments.getOrElse(2) { "" }
+        val source = segments.getOrElse(0) { "comicazen" }
+        val manga = segments.getOrElse(1) { "" }
+        val slug = segments.getOrElse(2) { "" }
 
         // FIX: pakai /api/chapter.php — static JSON sudah 404
         return GET(
@@ -269,7 +269,7 @@ class Comicaso : HttpSource() {
 
     override fun pageListParse(response: Response): List<Page> {
         // FIX: unwrap {"ok":true,"data":{"images":[...]}}
-        val root   = response.parseAs<ApiResponse<ChapterImagesDto>>()
+        val root = response.parseAs<ApiResponse<ChapterImagesDto>>()
         val result = root.data
         return result.getImageUrls().mapIndexed { index, imageUrl ->
             Page(index, "", imageUrl)
@@ -313,4 +313,3 @@ class Comicaso : HttpSource() {
         private const val PAGE_SIZE = 60
     }
 }
-

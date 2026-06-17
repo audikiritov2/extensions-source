@@ -293,8 +293,11 @@ class Comicaso : HttpSource() {
             StatusFilter(),
             TypeFilter(),
             GenreFilter(
-                if (genres.isNullOrEmpty()) arrayOf("All")
-                else arrayOf("All") + genres.toTypedArray(),
+                if (genres.isNullOrEmpty()) {
+                    arrayOf("All")
+                } else {
+                    arrayOf("All") + genres.toTypedArray()
+                },
             ),
             Filter.Separator(),
             Filter.Header("Jika genre tidak muncul, tekan 'Reset' untuk memuat ulang."),
@@ -308,6 +311,7 @@ class Comicaso : HttpSource() {
 
     companion object {
         const val URL_SEARCH_PREFIX = "url:"
+
         // Index manga masih dari static (confirmed OK)
         private const val STATIC_URL = "https://static.comicaso.pro/static"
         private const val PAGE_SIZE = 60

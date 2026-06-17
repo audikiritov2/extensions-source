@@ -37,10 +37,10 @@ data class MangaDto(
         title = this@MangaDto.title
         thumbnail_url = thumbnail
         this.status = when (this@MangaDto.status?.lowercase()) {
-            "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
-            "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
-            "hiatus", "dropped"                     -> SManga.ON_HIATUS
-            else                                    -> SManga.UNKNOWN
+            "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
+            "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
+            "hiatus", "dropped" -> SManga.ON_HIATUS
+            else -> SManga.UNKNOWN
         }
     }
 }
@@ -99,11 +99,11 @@ data class ChapterDto(
         chapter_number = slug.removePrefix("chapter-").toFloatOrNull() ?: -1f
     }
 
-    private fun parseDate(raw: String): Long {
-        return try {
-            val clean = raw.substringBefore("T").trim()
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(clean)?.time ?: 0L
-        } catch (_: Exception) { 0L }
+    private fun parseDate(raw: String): Long = try {
+        val clean = raw.substringBefore("T").trim()
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(clean)?.time ?: 0L
+    } catch (_: Exception) {
+        0L
     }
 }
 

@@ -1,0 +1,83 @@
+name: Build Comicaso APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/id/comicaso/**'
+      - '.github/workflows/build_push.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Release Comicaso APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build Comicaso APK
+        run: ./gradlew :src:id:comicaso:assembleRelease
+
+      - name: Collect APK
+        run: |
+          mkdir -p apk-output
+          find . -path "*/id/comicaso/build/outputs/apk/release/*.apk" \
+            -exec cp {} apk-output/ \;
+          echo "=== APK hasil build ==="
+          ls -lh apk-output/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: comicaso-apk
+          path: apk-output/*.apk
+          retention-days: 30
+
+      - name: Get APK name
+        id: apk_name
+        run: |
+          APK=$(ls apk-output/*.apk | head -1)
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          echo "apk_name=$(basename $APK)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: comicaso-${{ github.run_number }}
+          name: "Comicaso APK - Build #${{ github.run_number }}"
+          body: |
+            ### Comicaso Extension
+            
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+            
+            #### Changelog
+            - Fix HTTP 404 pada detail manga & chapter
+            - Endpoint baru: `/api/manga.php` & `/api/chapter.php`
+            - Fix WebView URL ke `v3.comicaso.pro`
+            - Fix unwrap response `{"ok":true,"data":{...}}`
+            
+            #### Cara Install
+            1. Download file `.apk` di bawah
+            2. Di Mihon: **Settings → Browse → Install APK**
+            3. Pilih file yang didownload
+          files: apk-output/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

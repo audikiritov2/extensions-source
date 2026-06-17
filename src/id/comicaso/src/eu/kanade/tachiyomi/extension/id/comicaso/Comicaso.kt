@@ -20,12 +20,8 @@ import rx.Observable
 class Comicaso : HttpSource() {
 
     override val name = "Comicaso"
-
-    // FIX: baseUrl wajib v3.comicaso.pro
     override val baseUrl = "https://v3.comicaso.pro"
-
     override val lang = "id"
-
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
@@ -36,151 +32,112 @@ class Comicaso : HttpSource() {
         .set("Referer", "$baseUrl/")
         .set("X-Comicaso-Platform", "web")
 
-    // ── Cache manga list ──────────────────────────────────────────────────────
+    // ── Helper: build home.php URL ────────────────────────────────────────────
 
-    private var cachedMangaList: List<Pair<String, MangaDto>>? = null
+    private fun homeUrl(
+        query: String = "",
+        mode: String = "update",
+        type: String = "all",
+        genre: String = "",
+        source: String = "all",
+        limit: Int = 60,
+        offset: Int = 0,
+    ) = "$baseUrl/api/home.php".toHttpUrl().newBuilder()
+        .addQueryParameter("source", source)
+        .addQueryParameter("q", query)
+        .addQueryParameter("mode", mode)
+        .addQueryParameter("type", type)
+        .apply { if (genre.isNotBlank()) addQueryParameter("genre", genre) }
+        .addQueryParameter("limit", limit.toString())
+        .addQueryParameter("offset", offset.toString())
+        .build()
 
-    private fun getMangaList(): Observable<List<Pair<String, MangaDto>>> {
-        if (cachedMangaList != null) return Observable.just(cachedMangaList)
+    // ── Helper: parse home.php response ──────────────────────────────────────
 
-        val sources = listOf("comicazen", "medusa")
-        val observables = sources.map { source ->
-            client.newCall(GET("$STATIC_URL/$source/manga/index.json", headers))
-                .asObservableSuccess()
-                .map { response ->
-                    response.parseAs<List<MangaDto>>().map { source to it }
-                }
-                .onErrorReturn { emptyList() }
-        }
-
-        return Observable.zip(observables) { results ->
-            results.flatMap { it as List<Pair<String, MangaDto>> }
-        }.doOnNext { cachedMangaList = it }
+    private fun Response.parseMangasPage(): MangasPage {
+        val root = parseAs<HomeResponseDto>()
+        val list = root.data
+            ?: root.manga
+            ?: root.results
+            ?: root.list
+            ?: emptyList()
+        return MangasPage(list.map { it.toSManga() }, hasNextPage = false)
     }
 
     // ── Popular ───────────────────────────────────────────────────────────────
 
-    override fun fetchPopularManga(page: Int): Observable<MangasPage> {
-        return getMangaList().map { mangas ->
-            val start = (page - 1) * PAGE_SIZE
-            if (start >= mangas.size) return@map MangasPage(emptyList(), false)
-            val end = minOf(start + PAGE_SIZE, mangas.size)
-            MangasPage(
-                mangas.subList(start, end).map { it.second.toSManga(it.first) },
-                end < mangas.size,
-            )
-        }
-    }
+    override fun popularMangaRequest(page: Int): Request =
+        GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
 
-    override fun popularMangaRequest(page: Int): Request = throw UnsupportedOperationException()
-    override fun popularMangaParse(response: Response): MangasPage = throw UnsupportedOperationException()
+    override fun popularMangaParse(response: Response) = response.parseMangasPage()
 
     // ── Latest ────────────────────────────────────────────────────────────────
 
-    override fun fetchLatestUpdates(page: Int): Observable<MangasPage> {
-        return getMangaList().map { mangas ->
-            val sorted = mangas.sortedByDescending { it.second.updatedAt ?: it.second.mangaDate ?: 0L }
-            val start = (page - 1) * PAGE_SIZE
-            if (start >= sorted.size) return@map MangasPage(emptyList(), false)
-            val end = minOf(start + PAGE_SIZE, sorted.size)
-            MangasPage(
-                sorted.subList(start, end).map { it.second.toSManga(it.first) },
-                end < sorted.size,
-            )
+    override fun latestUpdatesRequest(page: Int): Request =
+        GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
+
+    override fun latestUpdatesParse(response: Response) = response.parseMangasPage()
+
+    // ── Search + Filter ───────────────────────────────────────────────────────
+
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+        // Support "url:" prefix — langsung buka dari URL situs
+        if (query.startsWith(URL_SEARCH_PREFIX)) {
+            val raw = query.removePrefix(URL_SEARCH_PREFIX).trim()
+            runCatching {
+                val httpUrl = raw.toHttpUrl()
+                val src  = httpUrl.queryParameter("source") ?: return@runCatching
+                val slug = httpUrl.queryParameter("slug") ?: return@runCatching
+                return GET(
+                    "$baseUrl/api/manga.php".toHttpUrl().newBuilder()
+                        .addQueryParameter("source", src)
+                        .addQueryParameter("slug", slug)
+                        .addQueryParameter("platform", "web")
+                        .build(),
+                    headers,
+                )
+            }
         }
+
+        var genre  = ""
+        var type   = "all"
+        var src    = "all"
+        filters.forEach { f ->
+            when (f) {
+                is SourceFilter -> if (f.state > 0) src   = f.values[f.state].lowercase()
+                is GenreFilter  -> if (f.state > 0) genre = f.values[f.state]
+                is StatusFilter -> {} // status tidak didukung di home.php
+                is TypeFilter   -> if (f.state > 0) type  = f.values[f.state].lowercase()
+                else -> {}
+            }
+        }
+
+        val mode = if (query.isNotBlank()) "search" else "update"
+        return GET(
+            homeUrl(
+                query  = query.trim(),
+                mode   = mode,
+                type   = type,
+                genre  = genre,
+                source = src,
+                limit  = 60,
+                offset = (page - 1) * 60,
+            ),
+            headers,
+        )
     }
 
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-    override fun latestUpdatesParse(response: Response): MangasPage = throw UnsupportedOperationException()
-
-    // ── Search ────────────────────────────────────────────────────────────────
-
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        // Support url: prefix untuk langsung buka manga dari URL
-        if (query.isNotEmpty()) {
-            val rawUrl = when {
-                query.startsWith("https://") -> query.trim()
-                query.startsWith(URL_SEARCH_PREFIX) -> query.removePrefix(URL_SEARCH_PREFIX).trim()
-                else -> null
-            }
-            if (rawUrl != null) {
-                val httpUrl = rawUrl.toHttpUrl()
-                val pageParam = httpUrl.queryParameter("page")
-                val sourceParam = httpUrl.queryParameter("source")
-                val slugParam = httpUrl.queryParameter("slug")
-                if (pageParam == "manga" && sourceParam != null && slugParam != null) {
-                    return fetchMangaDetails(
-                        SManga.create().apply { url = "$sourceParam/$slugParam" },
-                    ).map { MangasPage(listOf(it), false) }
-                }
-            }
-        }
-
-        return getMangaList().map { mangas ->
-            var filtered = mangas
-
-            if (query.isNotEmpty()) {
-                filtered = filtered.filter {
-                    it.second.title.contains(query, ignoreCase = true)
-                }
-            }
-
-            filters.forEach { filter ->
-                when (filter) {
-                    is SourceFilter -> {
-                        if (filter.state > 0) {
-                            val src = filter.values[filter.state].lowercase()
-                            filtered = filtered.filter { it.first == src }
-                        }
-                    }
-                    is GenreFilter -> {
-                        if (filter.state > 0) {
-                            val genre = filter.values[filter.state]
-                            filtered = filtered.filter {
-                                it.second.genres?.contains(genre) == true
-                            }
-                        }
-                    }
-                    is StatusFilter -> {
-                        if (filter.state > 0) {
-                            val status = filter.values[filter.state].lowercase()
-                            filtered = filtered.filter { it.second.status == status }
-                        }
-                    }
-                    is TypeFilter -> {
-                        if (filter.state > 0) {
-                            val type = filter.values[filter.state].lowercase()
-                            filtered = filtered.filter { it.second.type == type }
-                        }
-                    }
-                    else -> {}
-                }
-            }
-
-            val start = (page - 1) * PAGE_SIZE
-            if (start >= filtered.size) return@map MangasPage(emptyList(), false)
-            val end = minOf(start + PAGE_SIZE, filtered.size)
-            MangasPage(
-                filtered.subList(start, end).map { it.second.toSManga(it.first) },
-                end < filtered.size,
-            )
-        }
-    }
-
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request = throw UnsupportedOperationException()
-    override fun searchMangaParse(response: Response): MangasPage = throw UnsupportedOperationException()
+    override fun searchMangaParse(response: Response) = response.parseMangasPage()
 
     // ── Manga Details ─────────────────────────────────────────────────────────
 
     override fun getMangaUrl(manga: SManga): String {
-        val (source, slug) = manga.url.split("/")
-        // FIX: WebView buka v3.comicaso.pro bukan comicaso.com
+        val (source, slug) = manga.url.split("/", limit = 2)
         return "$baseUrl/?page=manga&source=$source&slug=$slug"
     }
 
     override fun mangaDetailsRequest(manga: SManga): Request {
-        val (source, slug) = manga.url.split("/")
-        // FIX: pakai /api/manga.php — static JSON sudah 404
+        val (source, slug) = manga.url.split("/", limit = 2)
         return GET(
             "$baseUrl/api/manga.php".toHttpUrl().newBuilder()
                 .addQueryParameter("source", source)
@@ -192,16 +149,14 @@ class Comicaso : HttpSource() {
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
-        // FIX: response dibungkus {"ok":true,"data":{...},"mode_source":"..."}
-        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
-
         return SManga.create().apply {
-            url = "$source/${result.slug}"
-            title = result.title
+            url           = "$source/${result.slug}"
+            title         = result.title
             thumbnail_url = result.thumbnail
-            description = buildString {
+            description   = buildString {
                 result.synopsis?.let { append(Jsoup.parse(it).text()) }
                 result.alternative?.takeIf { it.isNotEmpty() }?.let {
                     if (isNotEmpty()) append("\n\n")
@@ -210,24 +165,22 @@ class Comicaso : HttpSource() {
             }.trim()
             author = result.author
             artist = result.artist ?: result.author
-            genre = result.genres?.joinToString()
+            genre  = result.genres?.joinToString()
             status = when (result.status?.lowercase()) {
-                "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
-                "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
-                "hiatus", "dropped" -> SManga.ON_HIATUS
-                else -> SManga.UNKNOWN
+                "on-going", "ongoing", "berlangsung"     -> SManga.ONGOING
+                "end", "completed", "selesai", "tamat"   -> SManga.COMPLETED
+                "hiatus", "dropped"                      -> SManga.ON_HIATUS
+                else                                     -> SManga.UNKNOWN
             }
         }
     }
 
     // ── Chapters ──────────────────────────────────────────────────────────────
 
-    // Reuse mangaDetailsRequest — chapter list ada di response manga detail
-    override fun chapterListRequest(manga: SManga): Request = mangaDetailsRequest(manga)
+    override fun chapterListRequest(manga: SManga) = mangaDetailsRequest(manga)
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        // FIX: unwrap data wrapper
-        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
         return result.chapters
@@ -237,25 +190,20 @@ class Comicaso : HttpSource() {
     }
 
     override fun getChapterUrl(chapter: SChapter): String {
-        // chapter.url format: "{source}/{mangaSlug}/{chapterSlug}"
         val segments = chapter.url.split("/")
-        val source = segments.getOrElse(0) { "comicazen" }
-        val manga = segments.getOrElse(1) { "" }
-        val slug = segments.getOrElse(2) { "" }
-        // FIX: WebView buka v3.comicaso.pro
+        val source   = segments.getOrElse(0) { "comicazen" }
+        val manga    = segments.getOrElse(1) { "" }
+        val slug     = segments.getOrElse(2) { "" }
         return "$baseUrl/?page=chapter&source=$source&manga=$manga&chapter=$slug"
     }
 
     // ── Pages ─────────────────────────────────────────────────────────────────
 
     override fun pageListRequest(chapter: SChapter): Request {
-        // chapter.url format: "{source}/{mangaSlug}/{chapterSlug}"
         val segments = chapter.url.split("/")
-        val source = segments.getOrElse(0) { "comicazen" }
-        val manga = segments.getOrElse(1) { "" }
-        val slug = segments.getOrElse(2) { "" }
-
-        // FIX: pakai /api/chapter.php — static JSON sudah 404
+        val source   = segments.getOrElse(0) { "comicazen" }
+        val manga    = segments.getOrElse(1) { "" }
+        val slug     = segments.getOrElse(2) { "" }
         return GET(
             "$baseUrl/api/chapter.php".toHttpUrl().newBuilder()
                 .addQueryParameter("source", source)
@@ -268,52 +216,48 @@ class Comicaso : HttpSource() {
     }
 
     override fun pageListParse(response: Response): List<Page> {
-        // FIX: unwrap {"ok":true,"data":{"images":[...]}}
-        val root = response.parseAs<ApiResponse<ChapterImagesDto>>()
+        val root   = response.parseAs<ApiResponse<ChapterImagesDto>>()
         val result = root.data
         return result.getImageUrls().mapIndexed { index, imageUrl ->
             Page(index, "", imageUrl)
         }
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String =
+        throw UnsupportedOperationException()
 
     // ── Filters ───────────────────────────────────────────────────────────────
 
-    override fun getFilterList(): FilterList {
-        val genres = cachedMangaList
-            ?.flatMap { it.second.genres ?: emptyList() }
-            ?.distinct()
-            ?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+    override fun getFilterList() = FilterList(
+        Filter.Header("Filter dapat dikombinasikan dengan pencarian teks."),
+        Filter.Separator(),
+        SourceFilter(),
+        StatusFilter(),
+        TypeFilter(),
+        GenreFilter(GENRES),
+        Filter.Separator(),
+        Filter.Header("Jika genre tidak muncul, tekan 'Reset'."),
+    )
 
-        return FilterList(
-            Filter.Header("Filter dapat dikombinasikan dengan pencarian teks."),
-            Filter.Separator(),
-            SourceFilter(),
-            StatusFilter(),
-            TypeFilter(),
-            GenreFilter(
-                if (genres.isNullOrEmpty()) {
-                    arrayOf("All")
-                } else {
-                    arrayOf("All") + genres.toTypedArray()
-                },
-            ),
-            Filter.Separator(),
-            Filter.Header("Jika genre tidak muncul, tekan 'Reset' untuk memuat ulang."),
-        )
-    }
-
-    private class SourceFilter : Filter.Select<String>("Source", arrayOf("All", "Comicazen", "Medusa"))
+    private class SourceFilter : Filter.Select<String>(
+        "Source", arrayOf("All", "Comicazen", "Medusa"),
+    )
     private class GenreFilter(genres: Array<String>) : Filter.Select<String>("Genre", genres)
-    private class StatusFilter : Filter.Select<String>("Status", arrayOf("All", "On-going", "End"))
-    private class TypeFilter : Filter.Select<String>("Type", arrayOf("All", "Manga", "Manhua", "Manhwa"))
+    private class StatusFilter : Filter.Select<String>(
+        "Status", arrayOf("All", "On-going", "End"),
+    )
+    private class TypeFilter : Filter.Select<String>(
+        "Type", arrayOf("All", "Manga", "Manhua", "Manhwa"),
+    )
 
     companion object {
         const val URL_SEARCH_PREFIX = "url:"
 
-        // Index manga masih dari static (confirmed OK)
-        private const val STATIC_URL = "https://static.comicaso.pro/static"
-        private const val PAGE_SIZE = 60
+        // Genre list hardcode — tidak perlu fetch dari API
+        val GENRES = arrayOf(
+            "All", "Action", "Adventure", "Comedy", "Drama",
+            "Fantasy", "Horror", "Isekai", "Romance",
+            "Sci-Fi", "Slice of Life", "Sports", "Supernatural",
+        )
     }
 }

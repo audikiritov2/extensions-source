@@ -33,10 +33,10 @@ data class MangaDto(
 ) {
     fun toSManga(source: String) = SManga.create().apply {
         // url format: "{source}/{slug}" — dipakai di mangaDetailsRequest & chapterListRequest
-        url           = "$source/$slug"
-        title         = this@MangaDto.title
+        url = "$source/$slug"
+        title = this@MangaDto.title
         thumbnail_url = thumbnail
-        this.status   = when (this@MangaDto.status?.lowercase()) {
+        this.status = when (this@MangaDto.status?.lowercase()) {
             "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
             "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
             "hiatus", "dropped"                     -> SManga.ON_HIATUS
@@ -82,7 +82,7 @@ data class ChapterDto(
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
         // url format: "{source}/{mangaSlug}/{chapterSlug}"
-        url  = "$source/$mangaSlug/$slug"
+        url = "$source/$mangaSlug/$slug"
         name = title ?: chapterTitle
             ?: slug.replace("-", " ").replaceFirstChar { it.uppercaseChar() }
 

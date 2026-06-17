@@ -46,14 +46,14 @@ data class MangaIndexDto(
     fun toSManga(): SManga = SManga.create().apply {
         // url format: "{source}/{slug}" — pakai source dari field atau default comicazen
         val src = this@MangaIndexDto.source ?: "comicazen"
-        url           = "$src/${this@MangaIndexDto.slug}"
-        title         = this@MangaIndexDto.title
+        url = "$src/${this@MangaIndexDto.slug}"
+        title = this@MangaIndexDto.title
         thumbnail_url = thumbnail
-        this.status   = when (this@MangaIndexDto.status?.lowercase()) {
-            "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
-            "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
-            "hiatus", "dropped"                     -> SManga.ON_HIATUS
-            else                                    -> SManga.UNKNOWN
+        this.status = when (this@MangaIndexDto.status?.lowercase()) {
+            "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
+            "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
+            "hiatus", "dropped" -> SManga.ON_HIATUS
+            else -> SManga.UNKNOWN
         }
     }
 }
@@ -92,7 +92,7 @@ data class ChapterDto(
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
         // url format: "{source}/{mangaSlug}/{chapterSlug}"
-        url  = "$source/$mangaSlug/$slug"
+        url = "$source/$mangaSlug/$slug"
         name = title ?: chapterTitle
             ?: slug.replace("-", " ").replaceFirstChar { it.uppercaseChar() }
 

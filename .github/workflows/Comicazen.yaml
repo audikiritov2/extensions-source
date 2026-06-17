@@ -17,6 +17,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          # Perlu token agar bisa push hasil spotlessApply
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -29,6 +32,17 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
+
+      # Auto-fix formatting dulu, lalu commit hasilnya
+      - name: Apply Spotless (auto-fix formatting)
+        run: ./gradlew :src:id:comicaso:spotlessApply
+
+      - name: Commit Spotless fixes (jika ada perubahan)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || (git add -A && git commit -m "style: apply spotless formatting [skip ci]")
+          git push || true
 
       - name: Build Comicaso APK
         run: ./gradlew :src:id:comicaso:assembleRelease
@@ -48,13 +62,6 @@ jobs:
           path: apk-output/*.apk
           retention-days: 30
 
-      - name: Get APK name
-        id: apk_name
-        run: |
-          APK=$(ls apk-output/*.apk | head -1)
-          echo "apk_path=$APK" >> $GITHUB_OUTPUT
-          echo "apk_name=$(basename $APK)" >> $GITHUB_OUTPUT
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -62,19 +69,13 @@ jobs:
           name: "Comicaso APK - Build #${{ github.run_number }}"
           body: |
             ### Comicaso Extension
-            
+
             **Commit:** ${{ github.sha }}
             **Branch:** ${{ github.ref_name }}
-            
-            #### Changelog
-            - Fix HTTP 404 pada detail manga & chapter
-            - Endpoint baru: `/api/manga.php` & `/api/chapter.php`
-            - Fix WebView URL ke `v3.comicaso.pro`
-            - Fix unwrap response `{"ok":true,"data":{...}}`
-            
-            #### Cara Install
+
+            #### Cara Install di Mihon
             1. Download file `.apk` di bawah
-            2. Di Mihon: **Settings → Browse → Install APK**
+            2. **Settings → Browse → Install APK**
             3. Pilih file yang didownload
           files: apk-output/*.apk
           draft: false

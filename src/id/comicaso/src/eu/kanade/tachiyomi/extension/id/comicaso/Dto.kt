@@ -66,7 +66,8 @@ object FlexibleDateSerializer : KSerializer<Long> {
 object FlexibleStringSerializer : KSerializer<String?> {
     override val descriptor = PrimitiveSerialDescriptor("FlexibleString", PrimitiveKind.STRING)
 
-    override fun serialize(encoder: Encoder, value: String?) = encoder.encodeString(value ?: "")
+    override fun serialize(encoder: Encoder, value: String?) =
+        encoder.encodeString(value ?: "")
 
     override fun deserialize(decoder: Decoder): String? {
         val jsonDecoder = decoder as? JsonDecoder ?: return null
@@ -96,20 +97,18 @@ data class ApiResponse<T>(
 
 // ── home.php response ─────────────────────────────────────────────────────────
 
+// Confirmed structure (Juni 2026):
+// {"ok":true,"total":2749,"limit":60,"offset":0,"next_offset":60,
+//  "has_more":true,"data":[...]}
 @Serializable
 data class HomeResponseDto(
     val ok: Boolean = false,
     val data: List<MangaIndexDto>? = null,
-    val manga: List<MangaIndexDto>? = null,
-    val results: List<MangaIndexDto>? = null,
-    val list: List<MangaIndexDto>? = null,
-    // Pagination fields — API mungkin return salah satu dari ini
-    val total: Int? = null,
-    val count: Int? = null,
-    @SerialName("has_more") val hasMore: Boolean? = null,
-    @SerialName("total_count") val totalCount: Int? = null,
-    @SerialName("total_data") val totalData: Int? = null,
-    @SerialName("last_page") val lastPage: Int? = null,
+    val total: Int = 0,
+    val limit: Int = 60,
+    val offset: Int = 0,
+    @SerialName("next_offset") val nextOffset: Int? = null,
+    @SerialName("has_more") val hasMore: Boolean = false,
 )
 
 // ── Manga index item ──────────────────────────────────────────────────────────
@@ -132,10 +131,10 @@ data class MangaIndexDto(
 ) {
     fun toSManga(): SManga = SManga.create().apply {
         val src = this@MangaIndexDto.source ?: "comicazen"
-        url = "$src/${this@MangaIndexDto.slug}"
-        title = this@MangaIndexDto.title
+        url           = "$src/${this@MangaIndexDto.slug}"
+        title         = this@MangaIndexDto.title
         thumbnail_url = thumbnail
-        this.status = this@MangaIndexDto.status.toMangaStatus()
+        this.status   = this@MangaIndexDto.status.toMangaStatus()
     }
 }
 
@@ -186,10 +185,10 @@ data class ChapterDto(
     val createdAt: Long = 0L,
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
-        url = "$source/$mangaSlug/$slug"
+        url  = "$source/$mangaSlug/$slug"
         name = title ?: chapterTitle
             ?: slug.replace("-", " ").replaceFirstChar { it.uppercaseChar() }
-        date_upload = date.takeIf { it > 0 } ?: updatedAt.takeIf { it > 0 } ?: createdAt
+        date_upload    = date.takeIf { it > 0 } ?: updatedAt.takeIf { it > 0 } ?: createdAt
         chapter_number = slug.removePrefix("chapter-").toFloatOrNull() ?: -1f
     }
 }
@@ -253,8 +252,8 @@ object FlexiblePageListSerializer : KSerializer<List<String>> {
 // ── Extension: String? → SManga status ───────────────────────────────────────
 
 fun String?.toMangaStatus() = when (this?.lowercase()) {
-    "on-going", "ongoing", "berlangsung" -> SManga.ONGOING
-    "end", "completed", "selesai", "tamat" -> SManga.COMPLETED
-    "hiatus", "dropped" -> SManga.ON_HIATUS
-    else -> SManga.UNKNOWN
+    "on-going", "ongoing", "berlangsung"    -> SManga.ONGOING
+    "end", "completed", "selesai", "tamat"  -> SManga.COMPLETED
+    "hiatus", "dropped"                     -> SManga.ON_HIATUS
+    else                                    -> SManga.UNKNOWN
 }

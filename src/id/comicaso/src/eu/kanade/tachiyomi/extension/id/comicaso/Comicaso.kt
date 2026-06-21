@@ -54,26 +54,22 @@ class Comicaso : HttpSource() {
 
     private fun Response.parseMangasPage(): MangasPage {
         val root = parseAs<HomeResponseDto>()
-        val list = root.data
-            ?: root.manga
-            ?: root.results
-            ?: root.list
-            ?: emptyList()
-        // hasNextPage = true kalau data yang dikembalikan sama dengan limit (60)
-        // artinya masih ada halaman berikutnya
-        val hasNext = root.hasMore == true || list.size >= PAGE_SIZE
-        return MangasPage(list.map { it.toSManga() }, hasNextPage = hasNext)
+        val list = root.data ?: emptyList()
+        // API confirmed punya field has_more — pakai langsung, akurat
+        return MangasPage(list.map { it.toSManga() }, hasNextPage = root.hasMore)
     }
 
     // ── Popular ───────────────────────────────────────────────────────────────
 
-    override fun popularMangaRequest(page: Int): Request = GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
+    override fun popularMangaRequest(page: Int): Request =
+        GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
 
     override fun popularMangaParse(response: Response) = response.parseMangasPage()
 
     // ── Latest ────────────────────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
+    override fun latestUpdatesRequest(page: Int): Request =
+        GET(homeUrl(mode = "update", limit = 60, offset = (page - 1) * 60), headers)
 
     override fun latestUpdatesParse(response: Response) = response.parseMangasPage()
 
@@ -85,7 +81,7 @@ class Comicaso : HttpSource() {
             val raw = query.removePrefix(URL_SEARCH_PREFIX).trim()
             runCatching {
                 val httpUrl = raw.toHttpUrl()
-                val src = httpUrl.queryParameter("source") ?: return@runCatching
+                val src  = httpUrl.queryParameter("source") ?: return@runCatching
                 val slug = httpUrl.queryParameter("slug") ?: return@runCatching
                 return GET(
                     "$baseUrl/api/manga.php".toHttpUrl().newBuilder()
@@ -98,15 +94,15 @@ class Comicaso : HttpSource() {
             }
         }
 
-        var genre = ""
-        var type = "all"
-        var src = "all"
+        var genre  = ""
+        var type   = "all"
+        var src    = "all"
         filters.forEach { f ->
             when (f) {
-                is SourceFilter -> if (f.state > 0) src = f.values[f.state].lowercase()
-                is GenreFilter -> if (f.state > 0) genre = f.values[f.state]
+                is SourceFilter -> if (f.state > 0) src   = f.values[f.state].lowercase()
+                is GenreFilter  -> if (f.state > 0) genre = f.values[f.state]
                 is StatusFilter -> {} // status tidak didukung di home.php
-                is TypeFilter -> if (f.state > 0) type = f.values[f.state].lowercase()
+                is TypeFilter   -> if (f.state > 0) type  = f.values[f.state].lowercase()
                 else -> {}
             }
         }
@@ -114,12 +110,12 @@ class Comicaso : HttpSource() {
         val mode = if (query.isNotBlank()) "search" else "update"
         return GET(
             homeUrl(
-                query = query.trim(),
-                mode = mode,
-                type = type,
-                genre = genre,
+                query  = query.trim(),
+                mode   = mode,
+                type   = type,
+                genre  = genre,
                 source = src,
-                limit = 60,
+                limit  = 60,
                 offset = (page - 1) * 60,
             ),
             headers,
@@ -148,14 +144,14 @@ class Comicaso : HttpSource() {
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
-        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
         return SManga.create().apply {
-            url = "$source/${result.slug}"
-            title = result.title
+            url           = "$source/${result.slug}"
+            title         = result.title
             thumbnail_url = result.thumbnail
-            description = buildString {
+            description   = buildString {
                 result.synopsis?.let { append(Jsoup.parse(it).text()) }
                 result.alternative?.takeIf { it.isNotEmpty() }?.let {
                     if (isNotEmpty()) append("\n\n")
@@ -164,7 +160,7 @@ class Comicaso : HttpSource() {
             }.trim()
             author = result.author
             artist = result.artist ?: result.author
-            genre = result.genres?.joinToString()
+            genre  = result.genres?.joinToString()
             status = result.status.toMangaStatus()
         }
     }
@@ -174,7 +170,7 @@ class Comicaso : HttpSource() {
     override fun chapterListRequest(manga: SManga) = mangaDetailsRequest(manga)
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        val root = response.parseAs<ApiResponse<MangaDetailDto>>()
+        val root   = response.parseAs<ApiResponse<MangaDetailDto>>()
         val result = root.data
         val source = response.request.url.queryParameter("source") ?: "comicazen"
         return result.chapters
@@ -185,9 +181,9 @@ class Comicaso : HttpSource() {
 
     override fun getChapterUrl(chapter: SChapter): String {
         val segments = chapter.url.split("/")
-        val source = segments.getOrElse(0) { "comicazen" }
-        val manga = segments.getOrElse(1) { "" }
-        val slug = segments.getOrElse(2) { "" }
+        val source   = segments.getOrElse(0) { "comicazen" }
+        val manga    = segments.getOrElse(1) { "" }
+        val slug     = segments.getOrElse(2) { "" }
         return "$baseUrl/?page=chapter&source=$source&manga=$manga&chapter=$slug"
     }
 
@@ -195,9 +191,9 @@ class Comicaso : HttpSource() {
 
     override fun pageListRequest(chapter: SChapter): Request {
         val segments = chapter.url.split("/")
-        val source = segments.getOrElse(0) { "comicazen" }
-        val manga = segments.getOrElse(1) { "" }
-        val slug = segments.getOrElse(2) { "" }
+        val source   = segments.getOrElse(0) { "comicazen" }
+        val manga    = segments.getOrElse(1) { "" }
+        val slug     = segments.getOrElse(2) { "" }
         return GET(
             "$baseUrl/api/chapter.php".toHttpUrl().newBuilder()
                 .addQueryParameter("source", source)
@@ -210,14 +206,15 @@ class Comicaso : HttpSource() {
     }
 
     override fun pageListParse(response: Response): List<Page> {
-        val root = response.parseAs<ApiResponse<ChapterImagesDto>>()
+        val root   = response.parseAs<ApiResponse<ChapterImagesDto>>()
         val result = root.data
         return result.getImageUrls().mapIndexed { index, imageUrl ->
             Page(index, "", imageUrl)
         }
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String =
+        throw UnsupportedOperationException()
 
     // ── Filters ───────────────────────────────────────────────────────────────
 
@@ -232,22 +229,16 @@ class Comicaso : HttpSource() {
         Filter.Header("Jika genre tidak muncul, tekan 'Reset'."),
     )
 
-    private class SourceFilter :
-        Filter.Select<String>(
-            "Source",
-            arrayOf("All", "Comicazen", "Medusa"),
-        )
+    private class SourceFilter : Filter.Select<String>(
+        "Source", arrayOf("All", "Comicazen", "Medusa"),
+    )
     private class GenreFilter(genres: Array<String>) : Filter.Select<String>("Genre", genres)
-    private class StatusFilter :
-        Filter.Select<String>(
-            "Status",
-            arrayOf("All", "On-going", "End"),
-        )
-    private class TypeFilter :
-        Filter.Select<String>(
-            "Type",
-            arrayOf("All", "Manga", "Manhua", "Manhwa"),
-        )
+    private class StatusFilter : Filter.Select<String>(
+        "Status", arrayOf("All", "On-going", "End"),
+    )
+    private class TypeFilter : Filter.Select<String>(
+        "Type", arrayOf("All", "Manga", "Manhua", "Manhwa"),
+    )
 
     companion object {
         const val URL_SEARCH_PREFIX = "url:"

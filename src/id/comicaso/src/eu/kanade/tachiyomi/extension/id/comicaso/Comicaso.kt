@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.id.comicaso
 
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -226,21 +227,44 @@ abstract class Comicaso :
 
     // =============================== Pages ===============================
 
-    override fun pageListRequest(chapter: SChapter): Request {
-        val url = "$baseUrl/${chapter.url}".toHttpUrl()
-        val source = url.pathSegments.getOrNull(0) ?: "all"
-        val manga = url.pathSegments.getOrNull(1) ?: ""
-        val slug = url.pathSegments.getOrNull(2) ?: ""
-        val token = url.queryParameter("token")!!
+    // NOTE: chapter.url no longer carries the token (see Dto.kt), so we
+    // can't build the final chapter.php request in pageListRequest() alone
+    // anymore. Instead we override fetchPageList() to:
+    //   1. Re-fetch the manga details to get a fresh chapterToken for this
+    //      chapter's slug.
+    //   2. Use that token to call api/chapter.php as before.
+    // This costs one extra network call per chapter open, but keeps the
+    // chapter's `url` (used by Mihon as its stable identity) unaffected by
+    // token churn.
+    override fun pageListRequest(chapter: SChapter): Request = throw UnsupportedOperationException()
 
-        val apiUri = "$baseUrl/api/chapter.php".toHttpUrl().newBuilder().apply {
-            addQueryParameter("source", source)
-            addQueryParameter("manga", manga)
-            addQueryParameter("chapter", slug)
-            addQueryParameter("token", token)
-        }.build()
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
+        val segments = chapter.urlSegments()
+        val source = segments.getOrNull(0) ?: "all"
+        val mangaSlug = segments.getOrNull(1) ?: ""
+        val chapterSlug = segments.getOrNull(2) ?: ""
 
-        return GET(apiUri, headers)
+        val detailsRequest = GET("$baseUrl/api/manga.php?source=$source&slug=$mangaSlug&platform=web", headers)
+
+        return client.newCall(detailsRequest).asObservableSuccess()
+            .map { response ->
+                val detailsRes = response.parseAs<MangaDetailResponseDto>()
+                detailsRes.data.chapters
+                    ?.firstOrNull { it.slug == chapterSlug }
+                    ?.chapterToken
+                    ?: throw IOException("Chapter tidak ditemukan lagi di server (mungkin sudah dihapus atau slug berubah).")
+            }
+            .flatMap { token ->
+                val apiUri = "$baseUrl/api/chapter.php".toHttpUrl().newBuilder().apply {
+                    addQueryParameter("source", source)
+                    addQueryParameter("manga", mangaSlug)
+                    addQueryParameter("chapter", chapterSlug)
+                    addQueryParameter("token", token)
+                }.build()
+
+                client.newCall(GET(apiUri, headers)).asObservableSuccess()
+            }
+            .map { response -> pageListParse(response) }
     }
 
     override fun pageListParse(response: Response): List<Page> {
@@ -287,4 +311,4 @@ abstract class Comicaso :
             "cdn2.imgmacha.com" to "dua",
         )
     }
-}
+    }

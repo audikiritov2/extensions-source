@@ -73,13 +73,20 @@ class MangaDetailDto(
 
 @Serializable
 class ChapterDto(
-    private val slug: String,
+    // NOTE: no longer `private` — needs to be readable from Comicaso.kt
+    // to re-resolve the token on demand (see fetchPageList()).
+    val slug: String,
     private val title: String,
-    @SerialName("chapter_token") private val chapterToken: String,
+    @SerialName("chapter_token") val chapterToken: String,
     private val date: Long? = null,
 ) {
     fun toSChapter(source: String, mangaSlug: String) = SChapter.create().apply {
-        url = "$source/$mangaSlug/$slug?token=$chapterToken"
+        // NOTE: token intentionally removed from the persisted chapter url.
+        // Mihon uses `url` as the chapter's stable identity for read/download
+        // status; if the token changes between fetches, keeping it here
+        // breaks that identity. Token is now re-fetched on demand instead
+        // (see Comicaso.fetchPageList).
+        url = "$source/$mangaSlug/$slug"
         name = title
         date_upload = date?.let { it * 1000L } ?: 0L
     }

@@ -1,0 +1,26 @@
+name: Build Comicaso APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Build Comicaso debug APK
+        run: ./gradlew src:id:comicaso:assembleDebug -x spotlessKotlinCheck --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: comicaso-apk
+          path: src/id/comicaso/build/outputs/apk/**/*.apk

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.extension.id.comicaso
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
+import eu.kanade.tachiyomi.network.interceptor.mainview.MainViewInterceptor
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -33,6 +34,7 @@ abstract class Comicaso :
     override val supportsLatest = true
 
     override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor(MainViewInterceptor(baseUrl))
         .addInterceptor(::authInterceptor)
         .addInterceptor(::cdnInterceptor)
         .rateLimit(4)
@@ -42,12 +44,6 @@ abstract class Comicaso :
         super.headersBuilder().build()["User-Agent"]
     }
 
-    // Android Chrome UA is the default fallback used by Mihon's WebView (for
-    // both solving this site's Cloudflare challenge and the Google sign-in
-    // step). It is NOT sent on background API calls — see authInterceptor.
-    // If either Cloudflare or Google starts rejecting this default for a
-    // given user, they can override it via Settings > Random user agent
-    // instead of requiring an extension update.
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
         .set("User-Agent", DEFAULT_USER_AGENT)
@@ -65,11 +61,12 @@ abstract class Comicaso :
 
         // Site shows a "Pastikan Anda Bukan Robot" slider-verification gate
         // and returns 428 Precondition Required until the session completes
-        // it via WebView. Surface a clear message instead of a generic
-        // network error / silent failure.
+        // it via WebView.
         if (response.code == 428) {
             response.close()
-            throw IOException("Verifikasi diperlukan. Buka manga ini di WebView, selesaikan verifikasi 'bukan robot', lalu coba lagi.")
+            // Throwing IOException with specific message to trigger WebView if needed,
+            // but MainViewInterceptor should handle most cases.
+            throw IOException("Verifikasi 'bukan robot' diperlukan. Silakan buka di WebView.")
         }
 
         if (response.code == 403) {
@@ -237,17 +234,6 @@ abstract class Comicaso :
 
     // =============================== Pages ===============================
 
-    // NOTE: chapter.url no longer carries the token (see Dto.kt), so we
-    // can't build the final chapter.php request in pageListRequest() alone
-    // anymore. Instead we override fetchPageList() to:
-    //   1. Re-fetch the manga details to get a fresh chapterToken for this
-    //      chapter's slug.
-    //   2. Use that token to call api/chapter.php as before.
-    // This costs one extra network call per chapter open, but keeps the
-    // chapter's `url` (used by Mihon as its stable identity) unaffected by
-    // token churn — including churn caused by the site's "not a robot"
-    // slider-verification gate (HTTP 428), which appears to rotate tokens
-    // as part of issuing a new verified session.
     override fun pageListRequest(chapter: SChapter): Request = throw UnsupportedOperationException()
 
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
@@ -323,4 +309,5 @@ abstract class Comicaso :
             "cdn2.imgmacha.com" to "dua",
         )
     }
-    }
+}
+

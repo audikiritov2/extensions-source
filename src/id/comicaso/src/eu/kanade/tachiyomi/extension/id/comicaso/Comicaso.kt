@@ -62,6 +62,16 @@ abstract class Comicaso :
             .build()
 
         val response = chain.proceed(request)
+
+        // Site shows a "Pastikan Anda Bukan Robot" slider-verification gate
+        // and returns 428 Precondition Required until the session completes
+        // it via WebView. Surface a clear message instead of a generic
+        // network error / silent failure.
+        if (response.code == 428) {
+            response.close()
+            throw IOException("Verifikasi diperlukan. Buka manga ini di WebView, selesaikan verifikasi 'bukan robot', lalu coba lagi.")
+        }
+
         if (response.code == 403) {
             val peekBody = response.peekBody(1024).string()
             if (peekBody.contains("\"locked\":true")) {
@@ -235,7 +245,9 @@ abstract class Comicaso :
     //   2. Use that token to call api/chapter.php as before.
     // This costs one extra network call per chapter open, but keeps the
     // chapter's `url` (used by Mihon as its stable identity) unaffected by
-    // token churn.
+    // token churn — including churn caused by the site's "not a robot"
+    // slider-verification gate (HTTP 428), which appears to rotate tokens
+    // as part of issuing a new verified session.
     override fun pageListRequest(chapter: SChapter): Request = throw UnsupportedOperationException()
 
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {

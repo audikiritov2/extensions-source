@@ -101,3 +101,4 @@ class ChapterResponseDto(
 class ChapterImagesDto(
     val images: List<String>? = null,
 )
+

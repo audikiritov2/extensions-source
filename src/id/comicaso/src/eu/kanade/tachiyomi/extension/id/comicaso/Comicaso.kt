@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.extension.id.comicaso
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
-import eu.kanade.tachiyomi.network.interceptor.mainview.MainViewInterceptor
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -34,7 +33,6 @@ abstract class Comicaso :
     override val supportsLatest = true
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .addInterceptor(MainViewInterceptor(baseUrl))
         .addInterceptor(::authInterceptor)
         .addInterceptor(::cdnInterceptor)
         .rateLimit(4)
@@ -64,8 +62,6 @@ abstract class Comicaso :
         // it via WebView.
         if (response.code == 428) {
             response.close()
-            // Throwing IOException with specific message to trigger WebView if needed,
-            // but MainViewInterceptor should handle most cases.
             throw IOException("Verifikasi 'bukan robot' diperlukan. Silakan buka di WebView.")
         }
 
@@ -310,4 +306,3 @@ abstract class Comicaso :
         )
     }
 }
-

@@ -62,7 +62,7 @@ abstract class Comicaso :
         // it via WebView.
         if (response.code == 428) {
             response.close()
-            throw IOException("Verifikasi 'bukan robot' diperlukan. Silakan buka di WebView.")
+            throw IOException("Verifikasi 'bukan robot' diperlukan. Buka manga ini di WebView, selesaikan verifikasi, lalu coba lagi.")
         }
 
         if (response.code == 403) {
@@ -306,3 +306,4 @@ abstract class Comicaso :
         )
     }
 }
+
